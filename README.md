@@ -8,9 +8,13 @@ between intended state and real world state.
 Managing system state, especially when state is comprised of multiple seperated individual parts is a complex
 task. Papiea allows entites to be in two states: desired and real, named "spec" and "status" respectively. `Providers`
 are the mechanism which help Papiea transition an entity from its real state (or its "status") to its desired state (or
-its "spec"). Three mechanisms are involved in such process: 1. `Add` - an entity has only `spec` but no `status`. The
-entity must be created in the real world which will be reflected in its status 2. `Del` - an entity has only `status`
-but no `spec`. The entity must be removed from the real world 3. `Change` - an entity has a both `spec` and `status`,
+its "spec"). Three mechanisms are involved in such process: 
+
+  1. `Add` - an entity has only `spec` but no `status`. The
+entity must be created in the real world which will be reflected in its status
+  2. `Del` - an entity has only `status`
+but no `spec`. The entity must be removed from the real world 
+  3. `Change` - an entity has a both `spec` and `status`,
 but they differ. The entity must be changed in the real world.
 
 ## Usage
@@ -36,25 +40,27 @@ docker exec -ti papiea-mongo mongo   # the mongo shell
 ```
 
 ### Run the application locally
-Once we have mongo accessible, we can simply start the server
-
-`lein ring server`
+This is a library, so it will be used through an application. Stay tuned for some sample applications!
 
 ### Run the tests
 
 `lein test`
 
-### Packaging and running as standalone jar
+# License and copyright
 
-```sh
-lein do clean, ring uberjar
-java -jar target/server.jar
-```
+Copyright (C) 2018 Nutanix
 
-### Packaging as war
+The code in the public repositories is licensed under the Apache
+license.
 
-`lein ring uberwar`
+Licensed under the Apache License, Version 2.0 (the "License"); you
+may not use this file except in compliance with the License.  You may
+obtain a copy of the License at
 
-## License
+http://www.apache.org/licenses/LICENSE-2.0
 
-Copyright ©  FIXME
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+implied.  See the License for the specific language governing
+permissions and limitations under the License.
