@@ -1,6 +1,6 @@
 # Prescriptive and Practical Intent Engine Architecture aka Papiea, pronounced like the fruit
 
-<img src="https://commons.wikimedia.org/wiki/File:Papaya.svg" width="150" height="150">
+<img src="https://upload.wikimedia.org/wikipedia/commons/1/13/Papaya.svg" width="150" height="150">
 
 Papiea is an Intent engine based on perscriptions or recipes for handling differences between intended state and real world state.
 
@@ -17,18 +17,18 @@ For now the system relies on MongoDB to be set up. The simplest way to use it is
 
 Set up a new docker instance and run it
 ```sh
-docker run -d --name nunet-mongo -p 27017:27017 -v ~/work/mongodb-docker/data:/data/db mvertes/alpine-mongo
+docker run -d --name papiea-mongo -p 27017:27017 -v ~/work/mongodb-docker/data:/data/db mvertes/alpine-mongo
 ```
 
 Stop it
 ```sh
-docker kill nunet-mongo
+docker kill papiea-mongo
 ```
 
 Access it:
 ```sh
-docker exec -ti nunet-mongo sh      # regular shell
-docker exec -ti nunet-mongo mongo   # the mongo shell
+docker exec -ti papiea-mongo sh      # regular shell
+docker exec -ti papiea-mongo mongo   # the mongo shell
 ```
 
 ### Run the application locally
