@@ -89,8 +89,9 @@
   (transform [:metadata :spec_version] dec entity))
 
 (defn unspec-version [entity]
-  (assoc (setval [:metadata :spec_version] nil entity)
-         :spec (:spec entity)))
+  (select-keys (assoc (setval [:metadata :spec_version] nil entity)
+                      :spec (:spec entity))
+               [:metadata :spec]))
 
 (defn ensure-spec-version
   ([prefix entity default-value]
@@ -193,7 +194,7 @@
     (let [done          (promise)
           speced-entity (ensure-spec-version prefix entity -1)]
       (try+
-       (swap! change-watch assoc (dissoc (unspec-version speced-entity) :api_version) done)
+       (swap! change-watch assoc (unspec-version speced-entity) done)
        (insert-spec-change! prefix speced-entity)
        (notify-change this)
        done
