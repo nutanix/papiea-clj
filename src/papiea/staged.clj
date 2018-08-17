@@ -51,4 +51,8 @@
           entity (or existing (start-staged-execution entity version))]
       (reduce (fn[e stage] (execute-stage resolve-fn stage e)) entity stages))))
 
-
+(defn get-stage-keyword [s]
+  (let [[kind stage] (s/conform :core.provider/stage s)]
+    (condp = kind
+      :string (keyword stage)
+      :keyword stage)))

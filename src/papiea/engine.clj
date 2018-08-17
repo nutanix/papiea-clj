@@ -51,7 +51,8 @@
 
 (defn-spec merge-entities-specs :papiea.entity.list/specs
   [old-entities :papiea.entity.list/specs new-entities :papiea.entity.list/specs]
-  (merge-entities-part old-entities new-entities :spec))
+  (merge-entities-part (merge-entities-part old-entities new-entities :spec)
+                       new-entities :metadata))
 
 (defn ensure-entity-map [m ks]
   (if (empty? ks) m
@@ -136,6 +137,8 @@
 (defn change-succeeded [change-watch]
   (fn[op entity]
     (let [previous-entity (unspec-version (dissoc entity :status))]
+      (println "watch:"  @change-watch)
+      (println "lookup:" previous-entity)
       (when-let [done (get @change-watch previous-entity)]
         (swap! change-watch dissoc previous-entity)
         (deliver done {:status :ok})))))
@@ -190,14 +193,15 @@
     (let [done          (promise)
           speced-entity (ensure-spec-version prefix entity -1)]
       (try+
-       (swap! change-watch assoc (unspec-version speced-entity) done)
+       (swap! change-watch assoc (dissoc (unspec-version speced-entity) :api_version) done)
        (insert-spec-change! prefix speced-entity)
        (notify-change this)
        done
        (catch Object e
          (swap! change-watch dissoc speced-entity)
-         (println e)
-         (throw+)))))
+         ;;(println e)
+         ;;(println "Throwing??")
+         (throw+ (merge {:status :failure} e))))))
   )
 
 (defn new-papiea-engine []
