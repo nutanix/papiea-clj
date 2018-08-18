@@ -1,4 +1,4 @@
-# Papiea - a Prescriptive and Practical Intent Engine Architecture
+# Papiea - Prescriptive and Practical Intent Engine Architecture
 
 <img src="https://upload.wikimedia.org/wikipedia/commons/1/13/Papaya.svg" width="150" height="150">
 
@@ -19,7 +19,8 @@ but they differ. The entity must be changed in the real world.
 
 ## Usage
 
-### Set up the enviroment For now the system relies on MongoDB to be
+### Set up the enviroment
+For now the system relies on MongoDB to be
 set up. The simplest way to use it is through `docker`. Directions
 taken from [here](https://github.com/mvertes/docker-alpine-mongo):
 

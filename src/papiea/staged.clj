@@ -27,10 +27,9 @@
     (mc/update-by-id db staged (-> entity :metadata :uuid) entity)
     entity))
 
-(defn clear-entities []
-  (mc/remove db staged))
-
-(defn execute-stage [resolve-fn stage entity]
+(defn execute-stage
+  "`resolve-fn` function must accept a hash-map with two keys :stage and :entity"
+  [resolve-fn stage entity]
   (or (get-entity-at-stage entity stage)
       (try+
        (def entity entity)
@@ -40,19 +39,33 @@
        (catch Object e
          (throw+)))))
 
+(defn clean-stages-if-done [stages entity])
+
 (defn staged-execution [provider-fn resolve-fn]
   (fn[entity]
-    (let [existing (get-entity-at-stage entity :init)
+    (let [existing                 (get-entity-at-stage entity :init)
           {:keys [version stages]} (call-api provider-fn (if existing
                                                            (setval [:status :stages :version]
                                                                    (-> existing :status :stages :version)
                                                                    entity)
                                                            entity))
-          entity (or existing (start-staged-execution entity version))]
-      (reduce (fn[e stage] (execute-stage resolve-fn stage e)) entity stages))))
+          entity                   (or existing (start-staged-execution entity version))
+          result                   (reduce (fn[e stage] (execute-stage resolve-fn stage e)) entity stages)
+          entity-id                (-> entity :metadata :uuid)]
+      (when (= (inc(count stages)) (count (some-> (mc/find-one-as-map db staged {:_id entity-id})
+                                                  :status :stages :completed)))
+        (mc/remove-by-id db staged entity-id))
+      result
+      )))
 
 (defn get-stage-keyword [s]
   (let [[kind stage] (s/conform :core.provider/stage s)]
     (condp = kind
       :string (keyword stage)
       :keyword stage)))
+
+(mc/find-maps db staged)
+
+
+(defn clear-entities []
+  (mc/remove db staged))

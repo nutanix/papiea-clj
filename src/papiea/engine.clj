@@ -12,7 +12,7 @@
 ;;(map #(ns-unmap *ns* %) (keys (ns-interns *ns*)))
 
 (defn state-settled? [entity]
-  (= (:spec entity) (:status entity)))
+  (= (:spec entity) (select-keys (:status entity) (keys (:spec entity)))))
 
 (defn handleable-diffs-for [state prefix]
   (let [prefix-diffs (select (into prefix [ALL (complement state-settled?)]) state)]
@@ -64,14 +64,18 @@
   ([transformers] (refresh-status {} transformers))
   ([state transformers]
    (reduce (fn[o [prefix {:keys [status-fn]}]]
-             (transform prefix (fn[x] (let [db-statuses (stdb/get-entities prefix)
-                                           statuses    (call-api status-fn db-statuses)
-                                           removed     (map (fn[e] (dissoc e :status :spec))
-                                                            (set/difference (set db-statuses) (set statuses)))]
-                                       (doseq [entity (concat statuses removed)]
-                                         (stdb/update-entity-status! prefix entity))                                       
-                                       (merge-entities-status x statuses)))
-                        (ensure-entity-map o prefix)))
+             (if status-fn
+               (transform prefix (fn[x] (let [db-statuses (stdb/get-entities prefix)
+                                             statuses    (call-api status-fn db-statuses)
+                                             removed     (map (fn[e] (dissoc e :status :spec))
+                                                              (set/difference (set db-statuses) (set statuses)))]
+                                         (doseq [entity (concat statuses removed)]
+                                           (stdb/update-entity-status! prefix entity))                                       
+                                         (merge-entities-status x statuses)))
+                          (ensure-entity-map o prefix))
+               (do(println "Error: Cant refresh" prefix " - no `status-fn` defined. Unsafely ignoring..")
+                  (ensure-entity-map o prefix))
+               ))
            state
            transformers)))
 
@@ -118,9 +122,11 @@
                        (catch Object o
                          {:status :failed
                           :error o}))]
-      (condp :status r
-        :success (success-fn op data)
-        :failed  (failed-fn op data)))))
+      (if (= :failed (:status r))
+        (failed-fn op data)
+        (do (stdb/update-entity-status! prefix r) ;; Save the state
+            (success-fn op data))
+        ))))
 
 (defn handle-diffs
   "apply the diffs"

@@ -34,4 +34,4 @@
 (s/def :papiea.recipe/stages (s/coll-of :papiea.provider/stage))
 (s/def :papiea/recipe (s/keys :req-un [:papiea.recipe/version :papiea.recipe/stages]))
 
-(s/def :papiea/api-fn (s/or :direct fn? :rest string?))
+(s/def :papiea/api-fn (s/or :direct ifn? :rest string?))
