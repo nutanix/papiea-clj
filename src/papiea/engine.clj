@@ -6,6 +6,7 @@
             [clojure.set :as set]
             [papiea.specs]
             [tracks.core :as t]
+            [papiea.tasks :as task]
             [papiea.core :refer [call-api fixed-rate ->timer]]
             [papiea.db.spec :as spdb]
             [papiea.db.status :as stdb]))
@@ -113,33 +114,36 @@
   [prefix entity]
   (spdb/swap-entity-spec! prefix (ensure-spec-version prefix entity -1)))
 
-(defn turn-spec-to-status [transformers prefix success-fn failed-fn {:keys [added removed changed]}]
-  (let [{:keys [add-fn del-fn change-fn]} (get transformers prefix)]
-    (let [[modify data op] (cond added   [add-fn added :added]
-                                 removed [del-fn removed :removed]
-                                 changed [change-fn changed :changed])
-          r      (try+ (modify data)
-                       (catch Object o
-                         {:status :failed
-                          :error o}))]
-      (if (= :failed (:status r))
-        (failed-fn op data)
-        (do (stdb/update-entity-status! prefix r) ;; Save the state
-            (success-fn op data))
-        ))))
+(defn turn-spec-to-status [transformers prefix tasked-fn success-fn failed-fn {:keys [added removed changed]}]
+  (let [{:keys [add-fn del-fn change-fn] :as w} (get transformers prefix)]
+    (let [[modify data op tasked] (cond added   [add-fn added :added (:add-tasked? w)]
+                                        removed [del-fn removed :removed (:del-tasked? w)]
+                                        changed [change-fn changed :changed (:changed-tasked? w)])
+          task-id (when tasked (tasked-fn op data))]
+      
+      (let [r (try+ (modify data)
+                    (catch Object o
+                      {:status :failed
+                       :error  o}))]
+        (if tasked
+          (if (= :failed (:status r))
+            (task/update-task1 task-id {:status "FAILED"})
+            (do (stdb/update-entity-status! prefix r) ;; Save the state
+                (task/update-task1 task-id {:status "COMPLETED"})))
+          (if (= :failed (:status r))
+            (failed-fn op data)
+            (do (stdb/update-entity-status! prefix r) ;; Save the state
+                (success-fn op data))
+            ))))))
 
-(defn handle-diffs
-  "apply the diffs"
-  ([transformers] (handle-diffs transformers
-                                (fn[op data] (println "Success: " op data))
-                                (fn[op data] (println "Failed: " op data))))
-  ([transformers success-fn failed-fn]
-   (let [diffs (-> (refresh-specs transformers)
-                   (refresh-status transformers)
-                   (handleable-diffs (keys transformers)))]
-     (doseq [{:keys [prefix diffs]} diffs
-             diff diffs]
-       (turn-spec-to-status transformers prefix success-fn failed-fn diff)))))
+(defn tasked-op [change-watch]
+  (fn[op entity]
+    (let [previous-entity (unspec-version (dissoc entity :status))]
+      (when-let [done (get @change-watch previous-entity)]
+        (swap! change-watch dissoc previous-entity)
+        (let [task (task/register-new-task entity)]
+          (deliver done (:uuid task))
+          (:uuid task))))))
 
 (defn change-succeeded [change-watch]
   (fn[op entity]
@@ -157,12 +161,26 @@
         (swap! change-watch dissoc previous-entity)
         (deliver done {:status :failed})))))
 
+(defn handle-diffs
+  "apply the diffs"
+  ([transformers] (handle-diffs transformers
+                                (fn[op data] (println "Taksed: " op data))
+                                (fn[op data] (println "Success: " op data))
+                                (fn[op data] (println "Failed: " op data))))
+  ([transformers tasked-fn success-fn failed-fn]
+   (let [diffs (-> (refresh-specs transformers)
+                   (refresh-status transformers)
+                   (handleable-diffs (keys transformers)))]
+     (doseq [{:keys [prefix diffs]} diffs
+             diff diffs]
+       (turn-spec-to-status transformers prefix tasked-fn success-fn failed-fn diff)))))
+
 ;; We model the async call as a watch on an atom. The watch is triggered every time the atom
 ;; value is changed, causing handle-diffs to be called with the registered transformers
 
 
 (defprotocol PapieaEngine 
-  (start-engine [this timeout transformers])
+  (start-engine [this transformers timeout])
   (stop-engine [this])
   (notify-change [this])
   (change-spec! [this prefix entity]))
@@ -174,6 +192,7 @@
                (fn[key a o n]
                  (println n "Looking for diffs")
                  (handle-diffs transformers
+                               (tasked-op change-watch)
                                (change-succeeded change-watch)
                                (change-failed change-watch))))
 
@@ -207,8 +226,11 @@
        (catch Object e
          (swap! change-watch dissoc speced-entity)
          ;;(println e)
-         ;;(println "Throwing??")
-         (throw+ (merge {:status :failure} e))))))
+         (println "Error processing spec change." e)
+         (throw+ (if (map? e)
+                   (merge {:status :failure} e)
+                   {:status :failure
+                    :cause e}))))))
   )
 
 (defn new-papiea-engine []
