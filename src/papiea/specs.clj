@@ -55,7 +55,6 @@
 (s/def :papiea.engine/del-tasked? boolean?)
 (s/def :papiea.engine/change-tasked? boolean?)
 
-
 (s/def :papiea.engine/entity-crud (s/keys :req-un [:papiea.engine/add-fn
                                                    :papiea.engine/del-fn
                                                    :papiea.engine/change-fn
@@ -65,10 +64,13 @@
                                                    :papiea.engine/change-tasked?]))
 
 (s/def :papiea.engine/transformers (s/map-of :papiea.engine/prefix :papiea.engine/entity-crud))
-(s/def :papiea.engine/timeout integer?)
+(s/def :papiea.engine/refresh-period integer?)
+(s/def :papiea.engine/clean-start boolean?)
 (s/def :papiea.engine/start-engine (s/keys :req-un [:papiea.engine/transformers
-                                                    :papiea.engine/timeout]
-                                           :opt-un [:papiea.entity/uuid]))
+                                                    :papiea.engine/refresh-period]
+                                           :opt-un [:papiea.entity/uuid
+                                                    :papiea.engine/clean-start]))
+
 (s/def :papiea.engine/stop-engine (s/keys :req-un [:papiea.entity/uuid]))
 
 (s/def :papiea.engine/change-spec (s/keys :req-un [:papiea.entity/uuid :papiea.engine/prefix :papiea/entity]))
@@ -77,6 +79,9 @@
 (s/def :papiea.engine/change-spec-response (s/or :task :papiea.engine/tasked-response
                                                  :sync :papiea.engine/synced-response))
 
+(s/def :papiea.engine/list-entities-request (s/keys :req-un [:papiea.entity/uuid
+                                                             :papiea.engine/prefix]))
+(s/def :papiea.engine/list-entities-response (s/coll-of map?))
 
 (s/def :papiea.task/time string?)
 (s/def :papiea.task/status string?)

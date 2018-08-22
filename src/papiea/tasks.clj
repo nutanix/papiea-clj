@@ -48,6 +48,8 @@
 (defn get-all-tasks []
   (map (fn[x] (dissoc x :_id)) (mc/find-maps db tasks)))
 
+(defn clear-tasks[]
+  (mc/remove db tasks))
 
 #_(def d (register-new-task {:metadata {:uuid "1"
                                      :kind "something"}

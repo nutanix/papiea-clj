@@ -6,7 +6,10 @@
             [papiea.engine :as e]
             [clojure.spec.alpha :as s]
             [papiea.core :as c]
+            [papiea.staged :as staged]
             [tracks.core :as t]
+            [papiea.db.spec :as spdb]
+            [papiea.db.status :as stdb]
             [spec-tools.core :as st]
             [spec-tools.transform :as stt]))
 
@@ -19,6 +22,7 @@
       compojure.api.coercion.spec/create-coercion))
 
 (defonce engines (atom {}))
+(defonce all-transformers (atom {}))
 
 (use '[clojure.tools.nrepl.server :only (start-server stop-server)])
 (defonce server (start-server :port 7888))
@@ -42,11 +46,18 @@
             :description "If contains uuid, it starts the engine with that uuid with the given timeout and transformers. If does not contain uuid, creates a new one and starts it. Returns the created or given uuid"
             :body [req :papiea.engine/start-engine]
             :return :papiea.entity/uuid
-            (let [{:keys [uuid transformers timeout]} req
+            (let [{:keys [uuid transformers refresh-period clean-start]} req
                   [uuid engine] (if uuid [uuid (get @engines uuid)]
                                     (let [uuid (c/uuid)]
                                       [uuid (swap! engines assoc uuid (e/new-papiea-engine))]))]
-              (e/start-engine engine timeout transformers)
+              (when clean-start
+                (println "Clean start - removing all previously known entities")
+                (spdb/clear-entities)
+                (stdb/clear-entities)
+                (task/clear-tasks)
+                (staged/clear-stages))
+              (swap! all-transformers uuid transformers)
+              (e/start-engine engine refresh-period transformers)
               (ok uuid)))
 
       (POST "/stop-engine" []
@@ -73,6 +84,17 @@
                 (bad-request "Engine not found!"))
               )
             )
+
+      (POST "/list" []
+        :summary "get all entities of a particular prefix"
+        :body [req :papiea.engine/list-entities-request]
+        :return :papiea.engine/list-entities-response
+        (if-let [transformers (get @all-transformers (:uuid req))]
+          (ok (get-in (-> (e/refresh-status transformers)
+                          (e/refresh-specs transformers))
+                      (:prefix req)))
+          (bad-request "Transformers not found!"))
+        )
 
       ;; (s/describe :papiea.task/poll-request)
       ;; (s/describe :papiea.task/task_uuid_list)

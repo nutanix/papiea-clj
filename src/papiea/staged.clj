@@ -67,5 +67,5 @@
 (mc/find-maps db staged)
 
 
-(defn clear-entities []
+(defn clear-stages []
   (mc/remove db staged))
