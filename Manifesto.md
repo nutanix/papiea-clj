@@ -40,9 +40,9 @@ A Procedural API would have exposed the following primitives:
 
 ```
 #define MCDONALDS
-int put\_burger\_in_oven(); // returns error if oven is not working
+int put_burger_in_oven(); // returns error if oven is not working
 int cook_burger(int temperature, int cook_time); // returns error if params are not valid
-int remove\_burger\_from_oven(); // returns error if oven is empty
+int remove_burger_from_oven(); // returns error if oven is empty
 ```
 Procedural APIs are far more expressive than Intentful APIs as they provide for customization. However, customization is a good thing only when the consumer is both _knowledgeable_ and _cares to be prescriptive_. Procedural APIs start to become burdensome when the programmer stops caring for the customizations, as that is not where the programmer wants to invest his/her time.
 
