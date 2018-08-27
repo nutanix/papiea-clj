@@ -26,6 +26,7 @@
       :direct (pfn arg)
       :rest   (json/decode
                (try+ (:body (rest/post pfn {:content-type :json
+                                            :insecure? true
                                             :body         (json/generate-string arg)}))
                      (catch Object o
                        (throw+ {:status :failed-api-call

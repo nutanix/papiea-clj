@@ -14,8 +14,6 @@
 (s/def :papiea.entity.list/spec (s/keys :req-un [:papiea.entity/metadata :papiea.entity/spec]))
 (s/def :papiea.entity.list/specs (s/coll-of :papiea.entity.list/spec))
 
-
-
 (s/def :papiea.provider.ok/status #{:ok})
 (s/def :papiea.provider.failed/status #{:failed})
 (s/def :papiea.provider.failed/error string?)
@@ -39,9 +37,12 @@
 
 (s/def :papiea/api-fn (s/or :direct ifn? :rest string?))
 
-
 (s/def :papiea.engine/prefix (s/or :keywords (s/coll-of keyword?)
-                                   :strings  (s/coll-of string?)))
+                                   :strings  (s/coll-of string?)
+                                   :string    string?
+                                   :keyword   keyword?))
+
+(s/def :papiea.engine.json/prefix keyword?)
 
 (s/def :papiea.engine/fn-or-staged (s/or :single-step :papiea/api-fn
                                          :staged (s/coll-of :papiea/api-fn :count 2)))
@@ -63,7 +64,7 @@
                                                    :papiea.engine/del-tasked?
                                                    :papiea.engine/change-tasked?]))
 
-(s/def :papiea.engine/transformers (s/map-of :papiea.engine/prefix :papiea.engine/entity-crud))
+(s/def :papiea.engine/transformers (s/map-of :papiea.engine.json/prefix :papiea.engine/entity-crud))
 (s/def :papiea.engine/refresh-period integer?)
 (s/def :papiea.engine/clean-start boolean?)
 (s/def :papiea.engine/start-engine (s/keys :req-un [:papiea.engine/transformers
@@ -73,15 +74,25 @@
 
 (s/def :papiea.engine/stop-engine (s/keys :req-un [:papiea.entity/uuid]))
 
-(s/def :papiea.engine/change-spec (s/keys :req-un [:papiea.entity/uuid :papiea.engine/prefix :papiea/entity]))
+(s/def :papiea.engine/change-spec (s/keys :req-un [:papiea.entity/uuid
+                                                   :papiea.engine/prefix
+                                                   :papiea/entity]))
+
 (s/def :papiea.engine/tasked-response (s/keys :req-un []))
 (s/def :papiea.engine/synced-response (s/keys :req-un []))
 (s/def :papiea.engine/change-spec-response (s/or :task :papiea.engine/tasked-response
                                                  :sync :papiea.engine/synced-response))
 
-(s/def :papiea.engine/list-entities-request (s/keys :req-un [:papiea.entity/uuid
+(s/def :papiea.engine/list-entities-request (s/keys :req-un [:papiea.entity/uuid 
                                                              :papiea.engine/prefix]))
-(s/def :papiea.engine/list-entities-response (s/coll-of map?))
+(s/def :papiea.engine.list/entities (s/coll-of map?))
+(s/def :papiea.engine/list-entities-response (s/keys :req-un [:papiea.engine.list/entities]))
+
+
+(s/def :papiea.engine/get-entity-request (s/keys :req-un [:papiea.entity/uuid
+                                                          :papiea.engine/prefix
+                                                          :papiea/entity]))
+(s/def :papiea.engine/get-entity-response :papiea/entity)
 
 (s/def :papiea.task/time string?)
 (s/def :papiea.task/status string?)

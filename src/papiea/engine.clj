@@ -5,6 +5,7 @@
             [orchestra.spec.test :as st]
             [clojure.set :as set]
             [papiea.specs]
+            [papiea.core :as c]
             [tracks.core :as t]
             [papiea.tasks :as task]
             [papiea.core :refer [call-api fixed-rate ->timer]]
@@ -12,8 +13,17 @@
             [papiea.db.status :as stdb]))
 ;;(map #(ns-unmap *ns* %) (keys (ns-interns *ns*)))
 
-(defn state-settled? [entity]
-  (= (:spec entity) (select-keys (:status entity) (keys (:spec entity)))))
+(defn unidirectional-diff
+  "Check diff only on items defined in the reference map"
+  [reference target]
+  (cond
+    (map? reference)        (every? (fn[key] (unidirectional-diff (get reference key) (get target key))) (keys reference))
+    (sequential? reference) (every? (fn[key] (unidirectional-diff (get reference key) (get target key))) reference)
+    :default                (= reference target)))
+
+(defn state-settled?
+  "returns true iff every key that is defined in the `spec` (recursively defined) has the same value as the one in the `status`"
+  [entity] (unidirectional-diff (:spec entity) (:status entity)))
 
 (defn handleable-diffs-for [state prefix]
   (let [prefix-diffs (select (into prefix [ALL (complement state-settled?)]) state)]
@@ -93,10 +103,10 @@
 (defn previous-spec-version [entity]
   (transform [:metadata :spec_version] dec entity))
 
-(defn unspec-version [entity]
-  (select-keys (assoc (setval [:metadata :spec_version] nil entity)
-                      :spec (:spec entity))
-               [:metadata :spec]))
+(defn unspec-version
+  "Returns an entity composed only from the spec and the uuid part of the metadata. Should only be used internally"
+  [entity] {:metadata {:uuid (-> entity :metadata :uuid)}
+            :spec (-> entity :spec)})
 
 (defn ensure-spec-version
   ([prefix entity default-value]
@@ -118,23 +128,30 @@
   (let [{:keys [add-fn del-fn change-fn] :as w} (get transformers prefix)]
     (let [[modify data op tasked] (cond added   [add-fn added :added (:add-tasked? w)]
                                         removed [del-fn removed :removed (:del-tasked? w)]
-                                        changed [change-fn changed :changed (:changed-tasked? w)])
+                                        changed [change-fn changed :changed (:change-tasked? w)])
           task-id (when tasked (tasked-fn op data))]
       
-      (let [r (try+ (modify data)
+      (let [r (try+ (c/call-api modify data)
                     (catch Object o
                       {:status :failed
                        :error  o}))]
         (if tasked
           (if (= :failed (:status r))
-            (task/update-task1 task-id {:status "FAILED"})
+            (task/update-task (:uuid task-id) {:status "FAILED"})
             (do (stdb/update-entity-status! prefix r) ;; Save the state
-                (task/update-task1 task-id {:status "COMPLETED"})))
+                (task/update-task (:uuid task-id) {:status "COMPLETED"})
+                (when-not (:status r)
+                  (spdb/remove-entity prefix (-> r :metadata :uuid))
+                  (stdb/remove-entity prefix (-> r :metadata :uuid)))))
           (if (= :failed (:status r))
             (failed-fn op data)
-            (do (stdb/update-entity-status! prefix r) ;; Save the state
-                (success-fn op data))
-            ))))))
+            (do
+              (stdb/update-entity-status! prefix r)
+              (when (nil? (:status r))
+                (spdb/remove-entity prefix (-> r :metadata :uuid))
+                (stdb/remove-entity prefix (-> r :metadata :uuid)))
+               ;; Save the state
+                (success-fn op data))))))))
 
 (defn tasked-op [change-watch]
   (fn[op entity]
@@ -143,7 +160,7 @@
         (swap! change-watch dissoc previous-entity)
         (let [task (task/register-new-task entity)]
           (deliver done (:uuid task))
-          (:uuid task))))))
+          task)))))
 
 (defn change-succeeded [change-watch]
   (fn[op entity]
@@ -163,10 +180,12 @@
 
 (defn handle-diffs
   "apply the diffs"
-  ([transformers] (handle-diffs transformers
-                                (fn[op data] (println "Taksed: " op data))
-                                (fn[op data] (println "Success: " op data))
-                                (fn[op data] (println "Failed: " op data))))
+  ([transformers]
+   (let [change-watch (atom {})]
+     (handle-diffs transformers
+                   (tasked-op change-watch)
+                   (change-succeeded change-watch)
+                   (change-failed change-watch))))
   ([transformers tasked-fn success-fn failed-fn]
    (let [diffs (-> (refresh-specs transformers)
                    (refresh-status transformers)
@@ -183,7 +202,8 @@
   (start-engine [this transformers timeout])
   (stop-engine [this])
   (notify-change [this])
-  (change-spec! [this prefix entity]))
+  (change-spec! [this prefix entity])
+  (get-entity [this prefix entity]))
 
 (defrecord DefaultEngine [change-watch handle-diff-notify started state]
   PapieaEngine
@@ -191,23 +211,26 @@
     (add-watch handle-diff-notify :process-diffs
                (fn[key a o n]
                  (println n "Looking for diffs")
-                 (handle-diffs transformers
-                               (tasked-op change-watch)
-                               (change-succeeded change-watch)
-                               (change-failed change-watch))))
+                 (try+
+                  (handle-diffs transformers
+                                (tasked-op change-watch)
+                                (change-succeeded change-watch)
+                                (change-failed change-watch))
+                  (catch Object o
+                    (println o)))))
 
     (when (compare-and-set! started false true)
       (println "Starting engine...")
       (swap! state assoc
              :tranformers transformers
-             :interval-notify (fixed-rate (partial notify-change this) (->timer) 5000)))
+             :interval-notify-cancel-fn (fixed-rate (partial notify-change this) (->timer) 5000)))
     this)
   
   (stop-engine [this]
     (when (compare-and-set! started true false)
       (println "Stopping engine..")
-      ((:interval-notify @state)) ;; stop the timer
-      (swap! state dissoc :interval-notify :tranformers))
+      ((:interval-notify-cancel-fn @state)) ;; stop the timer
+      (swap! state dissoc :interval-notify-cancel-fn :tranformers))
     this)
   
   (notify-change [this]
@@ -224,16 +247,23 @@
        (notify-change this)
        done
        (catch Object e
-         (swap! change-watch dissoc speced-entity)
-         ;;(println e)
          (println "Error processing spec change." e)
-         (throw+ (if (map? e)
-                   (merge {:status :failure} e)
-                   {:status :failure
-                    :cause e}))))))
-  )
+         (deliver done (if (map? e)
+                         (merge {:status :failure} e)
+                         {:status :failure
+                          :cause  e}))
+         (swap! change-watch dissoc speced-entity)
+         done))))
+
+  (get-entity [this prefix uuid]
+    (let [all-ents (get-in (-> (refresh-status transformers)
+                               (refresh-specs transformers))
+                           prefix)]
+      (some-> (filter (fn[x] (= uuid (-> x :metadata :uuid)))  all-ents)
+              first))))
 
 (defn new-papiea-engine []
   (println "Created new engine")
   (->DefaultEngine (atom {}) (atom 0) (atom false) (atom {})))
+
 

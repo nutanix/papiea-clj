@@ -17,6 +17,7 @@
   (let [now  (java.util.Date.)
         uuid (uuid)
         d    {:_id                   uuid
+              :status                "PENDING"
               :uuid                  uuid
               :creation_time         (str now)
               :start_time            (str now)
@@ -24,12 +25,12 @@
               :percentage_complete   0
               :entity_reference_list [{:kind (or (some-> entity :metadata :kind) "")
                                        :uuid (-> entity :metadata :uuid)
-                                       :name (some-> entity :spec :name)}]}]
+                                       :name (or (some-> entity :spec :name) "")}]}]
     (mc/insert db tasks d)
     d))
 
-(defn update-task1
-  ([uuid] (throw+ "A") (update-task1 uuid {}))
+(defn update-task
+  ([uuid] (update-task uuid {}))
   ([uuid task]
    (let [uuid (if (map? uuid) (-> uuid :metadata :uuid) uuid)]
      (if-let [p (mc/find-map-by-id db tasks uuid)]
