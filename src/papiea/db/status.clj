@@ -39,3 +39,5 @@
 (defn clear-entities []
   (mc/remove db entity-status))
 
+(defn remove-entity [prefix uuid]
+  (mc/remove db entity-status {:prefix prefix :_id uuid}))

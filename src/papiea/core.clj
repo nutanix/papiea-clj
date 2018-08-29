@@ -26,6 +26,7 @@
       :direct (pfn arg)
       :rest   (json/decode
                (try+ (:body (rest/post pfn {:content-type :json
+                                            :insecure? true
                                             :body         (json/generate-string arg)}))
                      (catch Object o
                        (throw+ {:status :failed-api-call
@@ -35,3 +36,14 @@
                                 :http-response o})))
                keyword))))
 
+
+(def current 
+  "Get current process PID"
+  (memoize
+   (fn []
+     (-> (java.lang.management.ManagementFactory/getRuntimeMXBean)
+         (.getName)
+         (clojure.string/split #"@")
+         (first)))))
+
+(println "Starting Papiea. PID" (current))

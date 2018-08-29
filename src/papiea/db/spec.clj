@@ -39,7 +39,10 @@
                                   :_id  (-> entity :metadata :uuid)}}
                           {:return-new true :upsert true})
       :_id :_prefix)
-     (mc/remove-by-id db entity-spec (-> entity :metadata :uuid)))
+      ;; throw an error of user is trying to remove an item that does not exists. This should be made atomic
+     (if (mc/find-by-id db entity-spec (-> entity :metadata :uuid))
+       (mc/remove-by-id db entity-spec (-> entity :metadata :uuid))
+       (throw+ "Trying to remove an Item that does not exist")))
    (catch Object e
      (throw+ {:entity entity
               :cause e} "Cant insert or update entity. Check that you are
@@ -50,3 +53,6 @@
 
 (defn clear-entities []
   (mc/remove db entity-spec))
+
+(defn remove-entity [prefix uuid]
+  (mc/remove db entity-spec {:prefix prefix :_id uuid}))
