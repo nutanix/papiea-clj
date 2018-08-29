@@ -36,3 +36,14 @@
                                 :http-response o})))
                keyword))))
 
+
+(def current 
+  "Get current process PID"
+  (memoize
+   (fn []
+     (-> (java.lang.management.ManagementFactory/getRuntimeMXBean)
+         (.getName)
+         (clojure.string/split #"@")
+         (first)))))
+
+(println "Starting Papiea. PID" (current))

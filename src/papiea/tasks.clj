@@ -34,14 +34,12 @@
   ([uuid task]
    (let [uuid (if (map? uuid) (-> uuid :metadata :uuid) uuid)]
      (if-let [p (mc/find-map-by-id db tasks uuid)]
-       (do(println "MERGING" p task)
-          (let [now (java.util.Date.)
-                d (merge p
-                         task
-                         {:last_update_time (str now)})]
-            (println "UPDATING to " d)
-            (mc/update db tasks {:_id uuid} d)
-            d))))))
+       (let [now (java.util.Date.)
+             d (merge p
+                      task
+                      {:last_update_time (str now)})]
+         (mc/update db tasks {:_id uuid} d)
+         d)))))
 
 (defn get-task [uuid]
   (dissoc (mc/find-map-by-id db tasks uuid) :_id))

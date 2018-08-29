@@ -12,6 +12,7 @@
             [papiea.db.spec :as spdb]
             [papiea.db.status :as stdb]))
 ;;(map #(ns-unmap *ns* %) (keys (ns-interns *ns*)))
+(set! *warn-on-reflection* true)
 
 (defn unidirectional-diff
   "Check diff only on items defined in the reference map"
@@ -62,8 +63,8 @@
 
 (defn-spec merge-entities-specs :papiea.entity.list/specs
   [old-entities :papiea.entity.list/specs new-entities :papiea.entity.list/specs]
-  (merge-entities-part (merge-entities-part old-entities new-entities :spec)
-                       new-entities :metadata))
+  (-> (merge-entities-part old-entities new-entities :spec)
+      (merge-entities-part new-entities :metadata)))
 
 (defn ensure-entity-map [m ks]
   (if (empty? ks) m
@@ -76,19 +77,20 @@
   ([state transformers]
    (reduce (fn[o [prefix {:keys [status-fn]}]]
              (if status-fn
-               (transform prefix (fn[x] (let [db-statuses (stdb/get-entities prefix)
-                                             statuses    (call-api status-fn db-statuses)
-                                             removed     (map (fn[e] (dissoc e :status :spec))
-                                                              (set/difference (set db-statuses) (set statuses)))]
-                                         (doseq [entity (concat statuses removed)]
-                                           (stdb/update-entity-status! prefix entity))                                       
-                                         (merge-entities-status x statuses)))
+               (transform prefix
+                          (fn[x] (let [db-statuses (stdb/get-entities prefix)
+                                      statuses    (call-api status-fn db-statuses)
+                                      removed     (map (fn[e] {:metadata (:metadata e)} #_(dissoc e :status :spec))
+                                                       (set/difference (set db-statuses)
+                                                                       (set statuses)))]
+                                  (doseq [entity (concat statuses removed)]
+                                    (stdb/update-entity-status! prefix entity))                                       
+                                  (merge-entities-status x statuses)))
                           (ensure-entity-map o prefix))
                (do(println "Error: Cant refresh" prefix " - no `status-fn` defined. Unsafely ignoring..")
-                  (ensure-entity-map o prefix))
-               ))
-           state
-           transformers)))
+                  (ensure-entity-map o prefix))))
+    state
+    transformers)))
 
 (declare prefix) ;; bug in cider while debugging..
 (defn refresh-specs
@@ -96,7 +98,10 @@
   ([transformers] (refresh-specs {} transformers))
   ([state transformers]
    (reduce (fn[o [prefix _]]
-             (transform prefix (fn[x] (merge-entities-specs x (spdb/get-entities prefix))) (ensure-entity-map o prefix)))
+             (transform prefix (fn[prefix-entities]
+                                 (merge-entities-specs prefix-entities
+                                                       (spdb/get-entities prefix)))
+                        (ensure-entity-map o prefix)))
            state
            transformers)))
 
@@ -130,7 +135,7 @@
                                         removed [del-fn removed :removed (:del-tasked? w)]
                                         changed [change-fn changed :changed (:change-tasked? w)])
           task-id (when tasked (tasked-fn op data))]
-      
+      ;;(println "Performing: " op data)
       (let [r (try+ (c/call-api modify data)
                     (catch Object o
                       {:status :failed
@@ -159,7 +164,7 @@
       (when-let [done (get @change-watch previous-entity)]
         (swap! change-watch dissoc previous-entity)
         (let [task (task/register-new-task entity)]
-          (deliver done (:uuid task))
+          (deliver done task)
           task)))))
 
 (defn change-succeeded [change-watch]
@@ -187,27 +192,34 @@
                    (change-succeeded change-watch)
                    (change-failed change-watch))))
   ([transformers tasked-fn success-fn failed-fn]
+   (println "Thread:" (.getName (Thread/currentThread)))
    (let [diffs (-> (refresh-specs transformers)
                    (refresh-status transformers)
                    (handleable-diffs (keys transformers)))]
-     (doseq [{:keys [prefix diffs]} diffs
-             diff diffs]
-       (turn-spec-to-status transformers prefix tasked-fn success-fn failed-fn diff)))))
+     (when-not (empty? diffs)
+       (println "\tFound" (count(:diffs (first diffs))) "diffs")
+       (time(doseq [{:keys [prefix diffs]} diffs
+                    diff diffs]
+              
+              (turn-spec-to-status transformers prefix tasked-fn success-fn failed-fn diff)))))))
 
 ;; We model the async call as a watch on an atom. The watch is triggered every time the atom
 ;; value is changed, causing handle-diffs to be called with the registered transformers
 
 
 (defprotocol PapieaEngine 
-  (start-engine [this transformers timeout])
+  (start-engine [this transformers diff-interval])
   (stop-engine [this])
   (notify-change [this])
   (change-spec! [this prefix entity])
   (get-entity [this prefix entity]))
 
+
+;;(require '[com.climate.claypoole :as cp])
+
 (defrecord DefaultEngine [change-watch handle-diff-notify started state]
   PapieaEngine
-  (start-engine [this transformers timeout]
+  (start-engine [this transformers diff-interval]
     (add-watch handle-diff-notify :process-diffs
                (fn[key a o n]
                  (println n "Looking for diffs")
@@ -221,9 +233,12 @@
 
     (when (compare-and-set! started false true)
       (println "Starting engine...")
-      (swap! state assoc
-             :tranformers transformers
-             :interval-notify-cancel-fn (fixed-rate (partial notify-change this) (->timer) 5000)))
+      (let [timer (->timer)]
+        (swap! state assoc
+               :diff-interval diff-interval
+               ;;:diff-cleanup-cancel-fn (fixed-rate (fn[] (cleanup-change-watch )) timer (* 2.5 diff-interval))
+               :tranformers (:transformers this)
+               :interval-notify-cancel-fn (fixed-rate (partial notify-change this) timer diff-interval))))
     this)
   
   (stop-engine [this]
@@ -244,7 +259,7 @@
       (try+
        (swap! change-watch assoc (unspec-version speced-entity) done)
        (insert-spec-change! prefix speced-entity)
-       (notify-change this)
+       ;;(notify-change this)
        done
        (catch Object e
          (println "Error processing spec change." e)
@@ -252,12 +267,12 @@
                          (merge {:status :failure} e)
                          {:status :failure
                           :cause  e}))
-         (swap! change-watch dissoc speced-entity)
+         (swap! change-watch dissoc (unspec-version speced-entity))
          done))))
 
   (get-entity [this prefix uuid]
-    (let [all-ents (get-in (-> (refresh-status transformers)
-                               (refresh-specs transformers))
+    (let [all-ents (get-in (-> (refresh-status (:transformers this))
+                               (refresh-specs (:transformers this)))
                            prefix)]
       (some-> (filter (fn[x] (= uuid (-> x :metadata :uuid)))  all-ents)
               first))))
